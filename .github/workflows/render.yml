@@ -13,8 +13,8 @@
 #                   (Drive file IDs — the files are private, so the
 #                   runner reads them with the service account key).
 #   drive_folder  - Drive folder ID the finished video is uploaded to
-#                   (the Contents folder). Defaults to the Equanimous
-#                   Contents folder.
+#                   (the videos folder). The runner creates a subfolder
+#                   named by the video's YouTube title inside it.
 #
 # Secrets (set in the repo settings, never in code):
 #   GOOGLE_SERVICE_ACCOUNT_KEY - the service account JSON key. The
@@ -43,10 +43,10 @@ on:
         required: true
         type: string
       drive_folder:
-        description: "Drive folder ID the finished video is uploaded to"
+        description: "Drive folder ID the finished video is uploaded to (the videos folder; the runner creates a subfolder named by the video's YouTube title inside it)"
         required: false
         type: string
-        default: "1sLxC_0-nrQNnWDl2HVOjJ1k0H70GsBEP"
+        default: "1OmX7HXuEVwXiBOR5Qi37z3jEVwr2AT2R"
 
 permissions:
   contents: read
