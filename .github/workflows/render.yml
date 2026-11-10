@@ -93,7 +93,6 @@ jobs:
           printf '%s' "$MANIFEST_JSON" > manifest.json
           python3 render.py --mode "${{ inputs.mode }}" --manifest manifest.json \
             --video-id "${{ inputs.video_id }}" \
-            --output "out/${{ inputs.video_id }}.mp4" \
             --drive-key service-account.json \
             --drive-folder "${{ inputs.drive_folder }}" > render-summary.json
           cat render-summary.json
@@ -104,6 +103,7 @@ jobs:
           name: ${{ inputs.video_id }}
           path: |
             out/${{ inputs.video_id }}.mp4
+            out/${{ inputs.video_id }}-captioned.mp4
             render-summary.json
           if-no-files-found: error
           retention-days: 7
