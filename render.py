@@ -19,7 +19,8 @@ Usage:
   render.py --mode assemble --manifest manifest.json --video-id EQ-... \
             --output out/EQ-....mp4
   render.py --mode captions --manifest manifest.json --video-id EQ-... \
-            --output out/EQ-...-captioned.mp4
+            --output out/EQ-...-captioned.mp4 \
+            --drive-key service-account.json --drive-folder <folder-id>
 
 --manifest accepts a path to a JSON file OR a JSON string (the workflow
 passes the workflow_dispatch manifest_json input this way).
@@ -48,6 +49,9 @@ A media item is one of:
   {"data": "<base64>", "ext": "mp4"}              # base64 payload
   "<base64>"                                      # bare base64 string
   "/local/file.mp4"                               # bare local path
+  {"drive": "<file-id>", "ext": "mp4"}            # Google Drive file
+                                                  # (service account key
+                                                  # via --drive-key)
   null                                            # ambience only: silence for that scene
 
 Rules preserved exactly from the bridge (do not "improve" them):
@@ -341,9 +345,124 @@ def _fetch_one(item, tmpdir, prefix, index, ext):
         _charge(len(raw))
         with open(dest, "wb") as fh:
             fh.write(raw)
+    elif isinstance(item, dict) and "drive" in item:
+        _drive_download(str(item["drive"]), dest)
     else:
         raise RenderError("%s %d: unsupported item format" % (prefix, index))
     return dest
+
+
+
+# ---------------------------------------------------------------------------
+# Google Drive access (service account).
+# The runner needs Drive because n8n passes media by Drive file ID (the
+# files are private; base64 in the dispatch input would be far too large).
+# Auth is a service account key (GitHub Secret GOOGLE_SERVICE_ACCOUNT_KEY,
+# written to a file by the workflow). google-auth + requests are installed
+# by the workflow and only imported when a drive item is used, so local
+# URL/base64 runs still work without them.
+# ---------------------------------------------------------------------------
+
+_DRIVE_SCOPES = ["https://www.googleapis.com/auth/drive"]
+_drive_creds = [None]
+_drive_key_path = [None]
+
+
+def _drive_credentials():
+    """Load the service account credentials (cached)."""
+    if _drive_creds[0] is not None:
+        return _drive_creds[0]
+    try:
+        from google.oauth2 import service_account
+    except ImportError:
+        raise RenderError(
+            "google-auth is not installed — the workflow must "
+            "pip install google-auth requests")
+    key_path = _drive_key_path[0] or os.environ.get(
+        "GOOGLE_SERVICE_ACCOUNT_KEY_FILE") or ""
+    key_json = os.environ.get("GOOGLE_SERVICE_ACCOUNT_JSON") or ""
+    if key_path and os.path.isfile(key_path):
+        creds = service_account.Credentials.from_service_account_file(
+            key_path, scopes=_DRIVE_SCOPES)
+    elif key_json:
+        creds = service_account.Credentials.from_service_account_info(
+            json.loads(key_json), scopes=_DRIVE_SCOPES)
+    else:
+        raise RenderError(
+            "no Drive service account key — pass --drive-key with the "
+            "service account JSON path (or set "
+            "GOOGLE_SERVICE_ACCOUNT_KEY_FILE)")
+    _drive_creds[0] = creds
+    return creds
+
+
+def _drive_token():
+    """Return a fresh OAuth2 access token for the Drive API."""
+    try:
+        from google.auth.transport.requests import Request as _AuthRequest
+    except ImportError:
+        raise RenderError(
+            "google-auth is not installed — the workflow must "
+            "pip install google-auth requests")
+    creds = _drive_credentials()
+    if not creds.valid:
+        creds.refresh(_AuthRequest())
+    return creds.token
+
+
+def _drive_download(file_id, dest):
+    """Download a Drive file by ID to dest. Raises RenderError."""
+    import requests as _requests
+    token = _drive_token()
+    url = ("https://www.googleapis.com/drive/v3/files/%s?alt=media"
+           % file_id)
+    resp = _requests.get(url, headers={"Authorization": "Bearer " + token},
+                         timeout=180)
+    if resp.status_code != 200:
+        raise RenderError("Drive download failed for %s: HTTP %d %s"
+                          % (file_id, resp.status_code, resp.text[:200]))
+    if len(resp.content) > MAX_ITEM_BYTES:
+        raise RenderError("Drive file %s too large" % file_id)
+    _charge(len(resp.content))
+    with open(dest, "wb") as fh:
+        fh.write(resp.content)
+    return dest
+
+
+def _drive_upload(local_path, name, folder_id):
+    """Upload a file to a Drive folder. Returns the new file ID."""
+    import requests as _requests
+    token = _drive_token()
+    meta = {"name": name}
+    if folder_id:
+        meta["parents"] = [folder_id]
+    with open(local_path, "rb") as fh:
+        data = fh.read()
+    boundary = "equanimous-render-boundary"
+    body = (
+        ("--%s\r\nContent-Type: application/json; charset=UTF-8\r\n\r\n"
+         % boundary).encode()
+        + json.dumps(meta).encode()
+        + ("\r\n--%s\r\nContent-Type: video/mp4\r\n\r\n"
+           % boundary).encode()
+        + data
+        + ("\r\n--%s--\r\n" % boundary).encode()
+    )
+    url = ("https://www.googleapis.com/upload/drive/v3/files"
+           "?uploadType=multipart")
+    resp = _requests.post(
+        url,
+        headers={"Authorization": "Bearer " + token,
+                 "Content-Type":
+                     "multipart/related; boundary=%s" % boundary},
+        data=body, timeout=300)
+    if resp.status_code not in (200, 201):
+        raise RenderError("Drive upload failed for %s: HTTP %d %s"
+                          % (name, resp.status_code, resp.text[:300]))
+    file_id = resp.json().get("id")
+    if not file_id:
+        raise RenderError("Drive upload returned no file id for %s" % name)
+    return file_id
 
 
 def fetch_media(items, tmpdir, prefix, ext):
@@ -934,6 +1053,12 @@ def main(argv=None):
                              "has none and in the summary")
     parser.add_argument("--output", default="",
                         help="output MP4 path (overrides manifest output)")
+    parser.add_argument("--drive-key", default="",
+                        help="path to the Google service account JSON key "
+                             "(for Drive items and Drive upload)")
+    parser.add_argument("--drive-folder", default="",
+                        help="Drive folder ID to upload the finished video "
+                             "to (overrides manifest drive_folder)")
     args = parser.parse_args(argv)
 
     try:
@@ -959,6 +1084,20 @@ def main(argv=None):
                 summary = captions_mode(manifest, tmpdir, out_path)
         finally:
             shutil.rmtree(tmpdir, ignore_errors=True)
+
+        # Upload the finished video to Drive when a folder is given
+        # (manifest drive_folder, or the --drive-folder flag). The file
+        # ID goes in the summary so n8n can read it back from Drive.
+        if args.drive_key:
+            _drive_key_path[0] = args.drive_key
+        drive_folder = (args.drive_folder or manifest.get("drive_folder")
+                        or "")
+        if drive_folder:
+            out_name = os.path.basename(out_path)
+            summary["drive_file_id"] = _drive_upload(
+                out_path, out_name, drive_folder)
+            log("uploaded %s to Drive folder %s as %s"
+                % (out_name, drive_folder, summary["drive_file_id"]))
 
         summary["status"] = "ok"
         summary["mode"] = args.mode
