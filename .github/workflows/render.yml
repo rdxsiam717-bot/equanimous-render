@@ -8,10 +8,19 @@
 # Inputs:
 #   mode          - assemble (n8n W05) or captions (n8n W06)
 #   video_id      - e.g. EQ-1794202623342-2; also the artifact name
-#   manifest_json - JSON string: media list, narration, script, ambience
+#   manifest_json - JSON string: media list, narration, script, ambience.
+#                   Media items may be {"drive": "<file-id>", "ext": ...}
+#                   (Drive file IDs — the files are private, so the
+#                   runner reads them with the service account key).
+#   drive_folder  - Drive folder ID the finished video is uploaded to
+#                   (the Contents folder). Defaults to the Equanimous
+#                   Contents folder.
 #
-# No secrets live in this repo. Drive fetch/upload (a Google service
-# account key as a GitHub Secret) plugs in later — see README.md.
+# Secrets (set in the repo settings, never in code):
+#   GOOGLE_SERVICE_ACCOUNT_KEY - the service account JSON key. The
+#     workflow writes it to service-account.json and passes it to
+#     render.py as --drive-key. The runner uses it to read Drive inputs
+#     and upload the finished video.
 
 name: Equanimous render
 
@@ -33,6 +42,11 @@ on:
         description: "Manifest JSON: media list, narration reference, script and ambience"
         required: true
         type: string
+      drive_folder:
+        description: "Drive folder ID the finished video is uploaded to"
+        required: false
+        type: string
+        default: "1sLxC_0-nrQNnWDl2HVOjJ1k0H70GsBEP"
 
 permissions:
   contents: read
@@ -61,8 +75,16 @@ jobs:
         with:
           python-version: "3.11"
 
-      - name: Install faster-whisper
-        run: python -m pip install --upgrade pip && python -m pip install faster-whisper
+      - name: Install faster-whisper and Drive client
+        run: python -m pip install --upgrade pip && python -m pip install faster-whisper google-auth requests
+
+      - name: Write service account key
+        env:
+          SA_KEY: ${{ secrets.GOOGLE_SERVICE_ACCOUNT_KEY }}
+        run: |
+          if [ -z "$SA_KEY" ]; then echo "GOOGLE_SERVICE_ACCOUNT_KEY secret is not set" >&2; exit 1; fi
+          printf '%s' "$SA_KEY" > service-account.json
+          python3 -c "import json; json.load(open('service-account.json')); print('service account key parses OK')"
 
       - name: Render
         env:
@@ -71,7 +93,9 @@ jobs:
           printf '%s' "$MANIFEST_JSON" > manifest.json
           python3 render.py --mode "${{ inputs.mode }}" --manifest manifest.json \
             --video-id "${{ inputs.video_id }}" \
-            --output "out/${{ inputs.video_id }}.mp4" > render-summary.json
+            --output "out/${{ inputs.video_id }}.mp4" \
+            --drive-key service-account.json \
+            --drive-folder "${{ inputs.drive_folder }}" > render-summary.json
           cat render-summary.json
 
       - name: Upload finished video
