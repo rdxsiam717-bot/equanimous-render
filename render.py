@@ -429,6 +429,41 @@ def _drive_download(file_id, dest):
     return dest
 
 
+def _drive_find_or_create_folder(name, parent_id):
+    """Find a folder by name inside a parent folder, creating it if it
+    does not exist yet. Returns the folder ID. Used so each finished video
+    lands in its own folder named by its YouTube title, inside the videos
+    folder."""
+    import requests as _requests
+    token = _drive_token()
+    safe = name.replace("'", "\\'")
+    q = ("name = '%s' and '%s' in parents and "
+         "mimeType = 'application/vnd.google-apps.folder' and trashed = false"
+         % (safe, parent_id))
+    url = "https://www.googleapis.com/drive/v3/files"
+    resp = _requests.get(url, headers={"Authorization": "Bearer " + token},
+                         params={"q": q, "fields": "files(id,name)",
+                                 "pageSize": 10}, timeout=60)
+    if resp.status_code != 200:
+        raise RenderError("Drive folder search failed: HTTP %d %s"
+                          % (resp.status_code, resp.text[:200]))
+    files = resp.json().get("files", [])
+    if files:
+        return files[0]["id"]
+    meta = {"name": name, "mimeType": "application/vnd.google-apps.folder",
+            "parents": [parent_id]}
+    resp = _requests.post(url, headers={"Authorization": "Bearer " + token,
+                                        "Content-Type": "application/json"},
+                          data=json.dumps(meta), timeout=60)
+    if resp.status_code not in (200, 201):
+        raise RenderError("Drive folder create failed for %s: HTTP %d %s"
+                          % (name, resp.status_code, resp.text[:200]))
+    folder_id = resp.json().get("id")
+    if not folder_id:
+        raise RenderError("Drive folder create returned no id for %s" % name)
+    return folder_id
+
+
 def _drive_upload(local_path, name, folder_id):
     """Upload a file to a Drive folder. Returns the new file ID."""
     import requests as _requests
@@ -1087,12 +1122,19 @@ def main(argv=None):
 
         # Upload the finished video to Drive when a folder is given
         # (manifest drive_folder, or the --drive-folder flag). The file
-        # ID goes in the summary so n8n can read it back from Drive.
+        # goes into a subfolder named by its YouTube title (manifest
+        # "title"), inside the videos folder, so each video has its own
+        # folder. The file ID and the folder ID go in the summary.
         if args.drive_key:
             _drive_key_path[0] = args.drive_key
         drive_folder = (args.drive_folder or manifest.get("drive_folder")
                         or "")
         if drive_folder:
+            title = (manifest.get("title") or "").strip()
+            if title:
+                drive_folder = _drive_find_or_create_folder(
+                    title, drive_folder)
+                summary["drive_folder_id"] = drive_folder
             out_name = os.path.basename(out_path)
             summary["drive_file_id"] = _drive_upload(
                 out_path, out_name, drive_folder)
