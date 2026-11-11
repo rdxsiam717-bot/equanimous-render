@@ -628,7 +628,15 @@ def align_words(script, whisper_words):
                 j += 1
                 acc += n
                 continue  # hyphen split, e.g. self + doubt
-            break  # mishearing: accept position timing, do not consume
+            # Mishearing (or an inserted word): consume this Whisper word
+            # and move on so the alignment resyncs on the next word.
+            # (Bug found 2026-11-11: the old code broke WITHOUT consuming,
+            # so j stayed stuck on the mismatched Whisper word forever —
+            # every later script word got the same start time, the
+            # sanitiser then spaced them 0.12s apart, and a 36.7s narration
+            # compressed into 15.5s of captions. Only 7/112 words matched.)
+            j += 1
+            break  # mishearing: accept position timing, move on
         aligned.append({"text": s.strip("'"), "start": start,
                         "end": end, "match": match})
     # Sanitise timings: Whisper sometimes gives a word a zero-length span,
