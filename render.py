@@ -1134,19 +1134,32 @@ def main(argv=None):
         # "title"), inside the videos folder, so each video has its own
         # folder. The file ID and the folder ID go in the summary.
         # (The --drive-key path was registered before assembly above.)
+        # NOTE: the Drive upload is NON-FATAL. Service accounts have no
+        # storage quota in a regular (My Drive) folder, so the upload can
+        # fail with HTTP 403 even when the render itself succeeded. The
+        # video is still saved locally and uploaded as a GitHub Actions
+        # artifact by the workflow; n8n (W05/W06) then downloads the
+        # artifact and uploads it to Drive with the user's OAuth
+        # credential, which does have quota. A failed Drive upload here
+        # must never turn a good render into a failed run.
         drive_folder = (args.drive_folder or manifest.get("drive_folder")
                         or "")
         if drive_folder:
-            title = (manifest.get("title") or "").strip()
-            if title:
-                drive_folder = _drive_find_or_create_folder(
-                    title, drive_folder)
-                summary["drive_folder_id"] = drive_folder
-            out_name = os.path.basename(out_path)
-            summary["drive_file_id"] = _drive_upload(
-                out_path, out_name, drive_folder)
-            log("uploaded %s to Drive folder %s as %s"
-                % (out_name, drive_folder, summary["drive_file_id"]))
+            try:
+                title = (manifest.get("title") or "").strip()
+                if title:
+                    drive_folder = _drive_find_or_create_folder(
+                        title, drive_folder)
+                    summary["drive_folder_id"] = drive_folder
+                out_name = os.path.basename(out_path)
+                summary["drive_file_id"] = _drive_upload(
+                    out_path, out_name, drive_folder)
+                log("uploaded %s to Drive folder %s as %s"
+                    % (out_name, drive_folder, summary["drive_file_id"]))
+            except Exception as exc:  # noqa: BLE001 - Drive upload is best-effort
+                summary["drive_upload_error"] = str(exc)
+                log("Drive upload skipped/failed (video still saved as "
+                    "artifact): %s" % exc)
 
         summary["status"] = "ok"
         summary["mode"] = args.mode
