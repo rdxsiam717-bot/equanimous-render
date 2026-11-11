@@ -83,7 +83,7 @@ Rules preserved exactly from the bridge (do not "improve" them):
     (trailing-1-word merge-back guard); cue start = first word onset,
     end = last word end. Degenerate-timing sanitizer: a word with
     end <= start gets a 0.12s slice, later words pushed after it.
-  * 200 MB total download cap, 50 MB per media item.
+  * 1 GB total download cap, 250 MB per media item.
 
 Only the Python standard library plus faster-whisper (word timings) is
 used. ffmpeg/ffprobe and the Montserrat font are provided by the runner
@@ -152,7 +152,7 @@ DIM = r"{\1c&H00608AC8&}"   # dim bronze-gold: the other words
 PRE = r"{\blur0.6}"
 
 # Running total of downloaded/copied bytes for this run (the bridge's
-# 200 MB body cap, applied here to everything fetched).
+# 1 GB body cap, applied here to everything fetched).
 _TOTAL_BYTES = [0]
 
 
@@ -266,10 +266,10 @@ def srt_to_ass(srt_text):
 
 
 def _charge(nbytes):
-    """Enforce the 200 MB total download cap across the whole run."""
+    """Enforce the 1 GB total download cap across the whole run."""
     _TOTAL_BYTES[0] += nbytes
     if _TOTAL_BYTES[0] > MAX_BODY_BYTES:
-        raise RenderError("total downloaded media exceeds the 200 MB cap")
+        raise RenderError("total downloaded media exceeds the 1 GB cap")
 
 
 def _item_ext(item, default):
@@ -1096,6 +1096,14 @@ def main(argv=None):
                              "to (overrides manifest drive_folder)")
     args = parser.parse_args(argv)
 
+    # The Drive key must be registered BEFORE any assembly/caption work:
+    # assemble() downloads the narration (a Drive item) during the build,
+    # so _drive_credentials() needs the key path set already. (Bug found
+    # 2026-11-11: this assignment used to sit after assemble(), so every
+    # Drive-backed render failed with 'no Drive service account key'.)
+    if args.drive_key:
+        _drive_key_path[0] = args.drive_key
+
     try:
         check_tools()
         manifest = load_manifest(args.manifest)
@@ -1125,8 +1133,7 @@ def main(argv=None):
         # goes into a subfolder named by its YouTube title (manifest
         # "title"), inside the videos folder, so each video has its own
         # folder. The file ID and the folder ID go in the summary.
-        if args.drive_key:
-            _drive_key_path[0] = args.drive_key
+        # (The --drive-key path was registered before assembly above.)
         drive_folder = (args.drive_folder or manifest.get("drive_folder")
                         or "")
         if drive_folder:
