@@ -104,8 +104,8 @@ import sys
 import tempfile
 import urllib.request
 
-MAX_BODY_BYTES = 200 * 1024 * 1024  # 200 MB total download cap
-MAX_ITEM_BYTES = 50 * 1024 * 1024   # 50 MB per media item
+MAX_BODY_BYTES = 1000 * 1024 * 1024  # 1 GB total download cap (GitHub runner has 14 GB disk)
+MAX_ITEM_BYTES = 250 * 1024 * 1024   # 250 MB per media item (long 4K Pixabay clips exceed the old 50 MB cap; e.g. a 59s 2160x3840 clip)
 FFMPEG_TIMEOUT = 600  # seconds per encode
 WHISPER_TIMEOUT = 300  # seconds per caption measurement
 
