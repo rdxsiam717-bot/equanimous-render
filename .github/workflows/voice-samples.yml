@@ -1,0 +1,76 @@
+name: Equanimous voice samples
+
+on:
+  workflow_dispatch:
+    inputs:
+      run_id:
+        description: "Artifact name for this sample run"
+        required: true
+        default: "voice-samples-1"
+      text:
+        description: "Sample text every voice reads (same text, fair comparison)"
+        required: true
+        default: "Are you struggling to believe in yourself? I've been there too. It's hard to shake off those negative thoughts. One thing that helped me is taking a few minutes each day to focus on my breath."
+      voices:
+        description: "Comma-separated Kokoro voice ids to sample"
+        required: true
+        default: "bm_daniel,bm_george,bm_lewis,am_adam,am_michael,am_onyx"
+      speed:
+        description: "Speaking speed (1.0 = normal; 0.9-0.95 sounds more deliberate)"
+        required: false
+        default: "1.0"
+
+permissions:
+  contents: read
+
+jobs:
+  samples:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Check out
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install ffmpeg and espeak-ng
+        run: sudo apt-get update -qq && sudo apt-get install -y -qq ffmpeg espeak-ng
+
+      - name: Cache Kokoro models
+        uses: actions/cache@v4
+        with:
+          path: kokoro-models
+          key: kokoro-v1.0-onnx
+
+      - name: Install Kokoro
+        run: |
+          pip install -q kokoro-onnx soundfile numpy
+          pip install -q "misaki[en]" || echo "misaki install failed, continuing with espeak-ng fallback"
+
+      - name: Download model files if not cached
+        run: |
+          mkdir -p kokoro-models
+          cd kokoro-models
+          [ -f kokoro-v1.0.onnx ] || curl -sL -o kokoro-v1.0.onnx https://github.com/thewh1teagle/kokoro-onnx/releases/download/model-files-v1.1/kokoro-v1.0.onnx
+          [ -f voices-v1.0.bin ] || curl -sL -o voices-v1.0.bin https://github.com/thewh1teagle/kokoro-onnx/releases/download/model-files-v1.1/voices-v1.0.bin
+          ls -la
+
+      - name: Generate voice samples
+        env:
+          SAMPLE_TEXT: ${{ inputs.text }}
+        run: |
+          printf '%s' "$SAMPLE_TEXT" > sample.txt
+          python3 sample-voices.py --text-file sample.txt --voices "${{ inputs.voices }}" --speed "${{ inputs.speed }}" --out-dir out | tee voice-samples-summary.json
+
+      - name: Upload voice samples
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ inputs.run_id }}
+          path: |
+            out/*-sample.mp3
+            voice-samples-summary.json
+          retention-days: 7
+          if-no-files-found: error
