@@ -112,6 +112,16 @@ WHISPER_TIMEOUT = 300  # seconds per caption measurement
 XFADE = 0.5  # seconds of gentle cross-dissolve between scenes
 ACROSS = 1.0  # seconds of crossfade between ambience pieces
 
+# Ambience loudness normalisation (2026-11-13): Freesound ambience files
+# vary wildly in level (measured -71.8 dB to -19.0 dB mean), so a fixed
+# 0.2 mix left the quietest inaudible and the loudest competing with the
+# voice. Every ambience piece is measured and gained to this target
+# mean volume BEFORE the 0.2 mix, so all scenes sit at the same level
+# under the narration. Gain is clamped so a near-silent file is not
+# boosted into hiss and a loud file is not crushed.
+AMB_TARGET_DB = -25.0
+AMB_GAIN_CLAMP_DB = 20.0
+
 # Caption style v3 (Hriduan, 2026-11-09): MIDDLE of the frame, stylish and
 # modern — Montserrat ExtraBold, gold with a soft navy outline and a
 # gentle glow, on a soft translucent dark box so it reads on any scene.
@@ -222,6 +232,24 @@ def probe_video(path):
                 float(data["format"]["duration"]))
     except (KeyError, TypeError, ValueError, StopIteration):
         return None, None, None
+
+
+def mean_volume_db(path):
+    """Return the mean volume of an audio file in dB via volumedetect,
+    or None if it cannot be measured."""
+    rc, _out, err = run([
+        "ffmpeg", "-v", "info", "-i", path,
+        "-af", "volumedetect", "-f", "null", "-",
+    ], timeout=120)
+    if rc != 0:
+        return None
+    m = re.search(r"mean_volume:\s*(-?[\d.]+)\s*dB", err)
+    if not m:
+        return None
+    try:
+        return float(m.group(1))
+    except ValueError:
+        return None
 
 
 def upper_srt(srt_text):
@@ -815,6 +843,26 @@ def assemble(manifest, tmpdir, out_path):
         except Exception as exc:  # noqa: BLE001
             raise RenderError("bad ambience input: %s" % exc)
         amb_paths = (amb_paths + [None] * n)[:n]
+        # Normalise each ambience piece to AMB_TARGET_DB before the 0.2
+        # mix, so a quiet file is audible and a loud file does not
+        # compete with the voice. A file that cannot be measured keeps
+        # gain 0 (no normalisation) rather than failing the job.
+        amb_gains = []
+        for p in amb_paths:
+            if p is None:
+                amb_gains.append(0.0)
+                continue
+            mv = mean_volume_db(p)
+            if mv is None:
+                log("WARNING: could not measure ambience level for %s — "
+                    "using gain 0 dB" % os.path.basename(p))
+                amb_gains.append(0.0)
+                continue
+            gain = max(-AMB_GAIN_CLAMP_DB,
+                       min(AMB_GAIN_CLAMP_DB, AMB_TARGET_DB - mv))
+            log("ambience %s: mean %.1f dB, gain %+.1f dB"
+                % (os.path.basename(p), mv, gain))
+            amb_gains.append(gain)
 
     # 3. Captions to disk as a real ASS file (ALL CAPS dialogue, locked
     # middle-centre style), if supplied. A caller-supplied ASS (with
@@ -903,8 +951,9 @@ def assemble(manifest, tmpdir, out_path):
             if amb_paths[i]:
                 inputs += ["-stream_loop", "-1", "-t", "%.3f" % fed,
                            "-i", amb_paths[i]]
-                filt = ("[%d:a]volume=0.2,aresample=44100,"
-                        "aformat=channel_layouts=stereo" % src)
+                filt = ("[%d:a]volume=%.1fdB,volume=0.2,aresample=44100,"
+                        "aformat=channel_layouts=stereo"
+                        % (src, amb_gains[i]))
                 if i == 0:
                     filt += ",afade=t=in:st=0:d=0.5"
                 if i == n - 1:
