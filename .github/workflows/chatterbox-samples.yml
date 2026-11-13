@@ -1,0 +1,63 @@
+name: Equanimous Chatterbox samples
+
+# Render short voice samples with Chatterbox Nano (MIT, CPU) cloned from a
+# reference recording, so the narrator voice can be heard before it is
+# adopted. Nothing is installed on any device or server; the runner is an
+# ephemeral GitHub VM. Nano is retired/unmaintained since Aug 2026, so the
+# package version is pinned (chatterbox-tts 0.1.7) and CPU torch is
+# installed first to avoid the large CUDA torch build.
+
+on:
+  workflow_dispatch:
+    inputs:
+      run_id:
+        description: "Run id (used in the artifact name)"
+        required: true
+        default: "chatterbox-samples-1"
+      texts_json:
+        description: 'JSON list of {"name","text"} samples, e.g. [{"name":"nano-snelson-sample","text":"..."}]'
+        required: true
+      reference:
+        description: "Reference audio in the repo (5-10 s voice to clone)"
+        required: false
+        default: "references/snelson-10s.wav"
+
+permissions:
+  contents: read
+
+jobs:
+  samples:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install ffmpeg
+        run: sudo apt-get update -qq && sudo apt-get install -y -qq ffmpeg
+
+      - name: Install CPU torch first (avoid CUDA build)
+        run: pip install "torch==2.6.0" "torchaudio==2.6.0" --index-url https://download.pytorch.org/whl/cpu
+
+      - name: Install Chatterbox (pinned, retired archive)
+        run: pip install "chatterbox-tts==0.1.7" soundfile
+
+      - name: Generate samples
+        run: |
+          echo '${{ inputs.texts_json }}' > /tmp/texts.json
+          python3 chatterbox-sample.py --reference "${{ inputs.reference }}" --texts-json /tmp/texts.json --out-dir out > chatterbox-summary.json
+
+      - name: Upload samples
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ inputs.run_id }}
+          path: |
+            out/*.mp3
+            chatterbox-summary.json
+          retention-days: 7
+          if-no-files-found: error
