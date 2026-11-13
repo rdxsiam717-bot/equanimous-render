@@ -46,10 +46,10 @@ on:
         required: true
         type: string
       reference:
-        description: "Voice-clone reference in the repo, e.g. references/my-voice.wav (empty = Kokoro only)"
+        description: "Voice-clone reference in the repo, e.g. references/reference-clarke.wav (empty = Kokoro only)"
         required: false
         type: string
-        default: ""
+        default: "references/reference-clarke.wav"
       speed:
         description: "Kokoro speaking speed, 1.0 is normal"
         required: false
