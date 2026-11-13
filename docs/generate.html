@@ -148,6 +148,14 @@
         opt.textContent = ref.name + ' (' + EQ.formatBytes(ref.size) + ')';
         cloneSelect.appendChild(opt);
       });
+      // Default voice: David Clarke — the narrator Hriduan picked as the
+      // primary/default voice (2026-11-13). Select it when present.
+      var defaultRef = EQ.REFERENCES_DIR + '/reference-clarke.wav';
+      var hasDefault = false;
+      for (var i = 0; i < cloneSelect.options.length; i++) {
+        if (cloneSelect.options[i].value === defaultRef) { hasDefault = true; break; }
+      }
+      if (hasDefault) cloneSelect.value = defaultRef;
     }).catch(function (err) {
       cloneSelect.innerHTML = '<option value="">Could not load voices: ' + EQ.escapeHtml(err.message) + '</option>';
     });
