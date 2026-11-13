@@ -1,0 +1,204 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>My Voices — Equanimous Voice Studio</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<header class="site-header">
+  <div class="wrap">
+    <div class="brand">
+      <h1>Equanimous <span class="gold">Voice Studio</span></h1>
+      <span class="tagline">Your voice, cloned. Your scripts, spoken.</span>
+    </div>
+    <nav class="main-nav">
+      <a href="index.html">Home</a>
+      <a href="voices.html">My Voices</a>
+      <a href="generate.html">Generate</a>
+      <a href="guide.html">Guide</a>
+    </nav>
+  </div>
+</header>
+
+<main class="wrap">
+  <section class="card">
+    <h2>My Voices</h2>
+    <p class="lede">A voice clone is just a short recording saved in the repo under <code>references/</code>. Upload your own voice once, and every voiceover can be generated in it.</p>
+    <div id="tokenStatus" class="status info">Checking&hellip;</div>
+  </section>
+
+  <section class="card">
+    <h2>Upload a new voice</h2>
+    <p class="muted">Record 5–10 seconds of clear speech in a quiet room. For the best clone, read two motivational lines with the exact energy you want in the videos — warm, confident, encouraging. WAV or MP3, under 10 MB.</p>
+    <form id="uploadForm">
+      <label for="voiceFile">Recording <span class="hint">(WAV or MP3, 5–10 seconds)</span></label>
+      <input type="file" id="voiceFile" accept=".wav,.mp3,audio/wav,audio/mpeg,audio/mp3" required>
+
+      <label for="voiceName">Clone name <span class="hint">(becomes the filename, e.g. “my-voice”)</span></label>
+      <input type="text" id="voiceName" placeholder="my-voice" required maxlength="60">
+      <p class="muted small">Only lowercase letters, numbers and dashes are used — anything else is converted automatically.</p>
+
+      <label for="voiceNote">Note <span class="hint">(optional, kept only in this browser)</span></label>
+      <input type="text" id="voiceNote" placeholder="e.g. Recorded 13 Nov, energetic read" maxlength="120">
+
+      <button type="submit" id="uploadBtn" class="gold">Upload voice</button>
+    </form>
+    <div id="uploadProgress" class="progress hidden"><div></div></div>
+    <div id="uploadStatus" class="status hidden"></div>
+  </section>
+
+  <section class="card">
+    <h2>Saved voice clones</h2>
+    <p><button type="button" id="refreshBtn" class="secondary small">Refresh list</button></p>
+    <div id="listStatus" class="status hidden"></div>
+    <ul id="voiceList" class="voice-list"></ul>
+    <p id="emptyNote" class="muted hidden">No voice clones saved yet. Upload your first voice above.</p>
+  </section>
+</main>
+
+<footer class="site-footer">
+  Equanimous Voice Studio &middot; Clones are reference recordings in the repo — nothing is trained or stored anywhere else.
+</footer>
+
+<script src="app.js"></script>
+<script>
+(function () {
+  EQ.initNav();
+  EQ.renderTokenStatus(document.getElementById('tokenStatus'));
+
+  var form = document.getElementById('uploadForm');
+  var fileInput = document.getElementById('voiceFile');
+  var nameInput = document.getElementById('voiceName');
+  var noteInput = document.getElementById('voiceNote');
+  var uploadBtn = document.getElementById('uploadBtn');
+  var progress = document.getElementById('uploadProgress');
+  var progressBar = progress.querySelector('div');
+  var uploadStatus = document.getElementById('uploadStatus');
+  var list = document.getElementById('voiceList');
+  var listStatus = document.getElementById('listStatus');
+  var emptyNote = document.getElementById('emptyNote');
+  var refreshBtn = document.getElementById('refreshBtn');
+
+  function setProgress(pct) {
+    progress.classList.remove('hidden');
+    progressBar.style.width = pct + '%';
+  }
+
+  function loadList() {
+    if (!EQ.hasToken()) {
+      EQ.showStatus(listStatus, 'warn', 'Save a token on the <a href="guide.html">Guide</a> page to see your saved voices.');
+      list.innerHTML = '';
+      emptyNote.classList.add('hidden');
+      return;
+    }
+    EQ.hideStatus(listStatus);
+    list.innerHTML = '<li class="muted">Loading…</li>';
+    EQ.listReferences().then(function (refs) {
+      list.innerHTML = '';
+      if (refs.length === 0) {
+        emptyNote.classList.remove('hidden');
+        return;
+      }
+      emptyNote.classList.add('hidden');
+      refs.forEach(function (ref) {
+        var li = document.createElement('li');
+        var note = EQ.getNote(ref.name);
+        li.innerHTML =
+          '<div><span class="vname">' + EQ.escapeHtml(ref.name) + '</span>' +
+          ' <span class="vmeta">' + EQ.formatBytes(ref.size) + ' &middot; ' + EQ.escapeHtml(ref.path) + '</span>' +
+          (note ? '<br><span class="vmeta">' + EQ.escapeHtml(note) + '</span>' : '') +
+          '</div>' +
+          '<div class="actions">' +
+          '<a class="btn small secondary" href="' + EQ.escapeHtml(ref.downloadUrl) + '" target="_blank" rel="noopener">Download</a> ' +
+          '<button type="button" class="danger small" data-del="' + EQ.escapeHtml(ref.path) + '" data-sha="' + EQ.escapeHtml(ref.sha) + '">Delete</button>' +
+          '</div>';
+        list.appendChild(li);
+      });
+      list.querySelectorAll('[data-del]').forEach(function (btn) {
+        btn.addEventListener('click', function () {
+          var path = btn.getAttribute('data-del');
+          var sha = btn.getAttribute('data-sha');
+          if (!window.confirm('Delete the voice clone "' + path + '"? This cannot be undone.')) return;
+          btn.disabled = true;
+          EQ.deleteReference(path, sha).then(function () {
+            EQ.setNote(path.split('/').pop(), '');
+            loadList();
+          }).catch(function (err) {
+            EQ.showStatus(listStatus, 'err', 'Delete failed: ' + EQ.escapeHtml(err.message));
+            btn.disabled = false;
+          });
+        });
+      });
+    }).catch(function (err) {
+      list.innerHTML = '';
+      EQ.showStatus(listStatus, 'err', 'Could not load voices: ' + EQ.escapeHtml(err.message));
+    });
+  }
+
+  form.addEventListener('submit', function (ev) {
+    ev.preventDefault();
+    EQ.hideStatus(uploadStatus);
+    if (!EQ.hasToken()) {
+      EQ.showStatus(uploadStatus, 'warn', 'Save a token on the <a href="guide.html">Guide</a> page first.');
+      return;
+    }
+    var file = fileInput.files[0];
+    if (!file) {
+      EQ.showStatus(uploadStatus, 'err', 'Choose a recording file first.');
+      return;
+    }
+    if (!/\.(wav|mp3)$/i.test(file.name)) {
+      EQ.showStatus(uploadStatus, 'err', 'Only WAV or MP3 recordings are accepted.');
+      return;
+    }
+    if (file.size > 10 * 1024 * 1024) {
+      EQ.showStatus(uploadStatus, 'err', 'That file is over 10 MB. Trim it to 5–10 seconds and try again.');
+      return;
+    }
+    var name = EQ.sanitizeName(nameInput.value);
+    if (!name) {
+      EQ.showStatus(uploadStatus, 'err', 'Give the clone a name (letters, numbers and dashes).');
+      return;
+    }
+    var ext = file.name.toLowerCase().endsWith('.mp3') ? 'mp3' : 'wav';
+    var path = EQ.REFERENCES_DIR + '/' + name + '.' + ext;
+
+    uploadBtn.disabled = true;
+    setProgress(10);
+    EQ.getFileSha(path).then(function (existingSha) {
+      if (existingSha) {
+        if (!window.confirm('A clone named "' + name + '.' + ext + '" already exists. Overwrite it?')) {
+          uploadBtn.disabled = false;
+          progress.classList.add('hidden');
+          return Promise.reject(new Error('cancelled'));
+        }
+      }
+      setProgress(30);
+      return EQ.readFileAsBase64(file).then(function (base64) {
+        setProgress(60);
+        return EQ.uploadReference(name, ext, base64, 'Add voice clone ' + name + '.' + ext, existingSha || undefined);
+      });
+    }).then(function () {
+      setProgress(100);
+      var note = noteInput.value.trim();
+      EQ.setNote(name + '.' + ext, note);
+      EQ.showStatus(uploadStatus, 'ok', 'Voice clone <strong>' + EQ.escapeHtml(name + '.' + ext) + '</strong> saved. You can now use it on the <a href="generate.html">Generate</a> page.');
+      form.reset();
+      loadList();
+    }).catch(function (err) {
+      if (err && err.message === 'cancelled') return;
+      EQ.showStatus(uploadStatus, 'err', 'Upload failed: ' + EQ.escapeHtml(err.message));
+    }).finally(function () {
+      uploadBtn.disabled = false;
+      setTimeout(function () { progress.classList.add('hidden'); }, 800);
+    });
+  });
+
+  refreshBtn.addEventListener('click', loadList);
+  loadList();
+})();
+</script>
+</body>
+</html>

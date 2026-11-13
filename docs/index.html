@@ -1,0 +1,99 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Equanimous Voice Studio — Home</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<header class="site-header">
+  <div class="wrap">
+    <div class="brand">
+      <h1>Equanimous <span class="gold">Voice Studio</span></h1>
+      <span class="tagline">Your voice, cloned. Your scripts, spoken.</span>
+    </div>
+    <nav class="main-nav">
+      <a href="index.html">Home</a>
+      <a href="voices.html">My Voices</a>
+      <a href="generate.html">Generate</a>
+      <a href="guide.html">Guide</a>
+    </nav>
+  </div>
+</header>
+
+<main class="wrap">
+  <section class="card">
+    <h2>Make voiceovers in your own voice</h2>
+    <p class="lede">This site is the control panel for the Equanimous narrator voice. Upload a short recording of your voice, and it becomes a voice clone. Then paste any script, pick your clone, and generate a voiceover on GitHub's free runners — and download the MP3 straight from your browser.</p>
+    <p>No servers, no subscriptions, no card. The site is a static page (GitHub Pages). It talks to GitHub's API with a token you paste once and that stays only in your browser.</p>
+  </section>
+
+  <section class="card">
+    <h2>Setup status</h2>
+    <div id="tokenStatus" class="status info">Checking&hellip;</div>
+    <p id="cloneCount" class="muted">Voice clones: connect with a token to see how many are saved.</p>
+    <p>
+      <a class="btn small" href="guide.html">Set up your token</a>
+      <a class="btn small secondary" href="voices.html">Go to My Voices</a>
+    </p>
+  </section>
+
+  <section class="card">
+    <h2>How it works</h2>
+    <ol class="steps">
+      <li><strong>Upload a voice.</strong> On <a href="voices.html">My Voices</a>, upload a 5–10 second recording of clear speech — ideally your own voice reading two motivational lines with the energy you want. It is saved in the repo under <code>references/</code> and becomes a clone.</li>
+      <li><strong>Pick a clone and paste a script.</strong> On <a href="generate.html">Generate</a>, choose the clone, the provider and the speed, then paste the script.</li>
+      <li><strong>Generate and download.</strong> The voiceover is rendered on GitHub's free runners (a 60-second voiceover takes a few minutes). When it finishes, download the MP3 from this page.</li>
+    </ol>
+  </section>
+
+  <section class="card">
+    <h2>Providers</h2>
+    <div class="grid">
+      <div class="tile">
+        <h3>Chatterbox Nano — main</h3>
+        <p>Open-source (MIT licence), runs on CPU, and clones your reference voice so the narration sounds like you — warm, expressive and human. This is the default.</p>
+      </div>
+      <div class="tile">
+        <h3>Kokoro — fallback</h3>
+        <p>Open-source (Apache 2.0), very fast on CPU. If Chatterbox fails for any reason, the workflow falls back to Kokoro's male voice <code>bm_daniel</code>. Both licences are commercial-safe for a monetised channel.</p>
+      </div>
+    </div>
+    <p class="muted">The provider actually used for each voiceover is recorded in the summary that comes back with the MP3, so you always know which one spoke.</p>
+  </section>
+
+  <section class="card">
+    <h2>Quick links</h2>
+    <p>
+      <a class="btn" href="voices.html">My Voices</a>
+      <a class="btn gold" href="generate.html">Generate a voiceover</a>
+      <a class="btn secondary" href="guide.html">Setup &amp; Guide</a>
+    </p>
+    <p class="muted">Repo: <a href="https://github.com/rdxsiam717-bot/equanimous-render" target="_blank" rel="noopener">rdxsiam717-bot/equanimous-render</a> &middot; Workflow: <code>chatterbox-voiceover.yml</code></p>
+  </section>
+</main>
+
+<footer class="site-footer">
+  Equanimous Voice Studio &middot; Chatterbox Nano (MIT) &middot; Kokoro (Apache 2.0) &middot; Your token never leaves your browser except to api.github.com.
+</footer>
+
+<script src="app.js"></script>
+<script>
+(function () {
+  EQ.initNav();
+  EQ.renderTokenStatus(document.getElementById('tokenStatus'));
+  var countEl = document.getElementById('cloneCount');
+  if (EQ.hasToken()) {
+    countEl.textContent = 'Voice clones: loading…';
+    EQ.listReferences().then(function (refs) {
+      countEl.textContent = 'Voice clones: ' + refs.length + ' saved in references/.' +
+        (refs.length === 0 ? ' Upload your first voice on the My Voices page.' : '');
+    }).catch(function (err) {
+      countEl.textContent = 'Voice clones: could not load (' + err.message + ').';
+    });
+  }
+})();
+</script>
+</body>
+</html>

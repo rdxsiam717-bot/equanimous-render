@@ -1,0 +1,344 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Generate Voiceover — Equanimous Voice Studio</title>
+<link rel="stylesheet" href="style.css">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
+</head>
+<body>
+<header class="site-header">
+  <div class="wrap">
+    <div class="brand">
+      <h1>Equanimous <span class="gold">Voice Studio</span></h1>
+      <span class="tagline">Your voice, cloned. Your scripts, spoken.</span>
+    </div>
+    <nav class="main-nav">
+      <a href="index.html">Home</a>
+      <a href="voices.html">My Voices</a>
+      <a href="generate.html">Generate</a>
+      <a href="guide.html">Guide</a>
+    </nav>
+  </div>
+</header>
+
+<main class="wrap">
+  <section class="card">
+    <h2>Generate a voiceover</h2>
+    <p class="lede">Pick one of your voice clones, paste the script, and the voiceover is rendered on GitHub's free runners. Chatterbox Nano is the main provider; if it fails, the workflow falls back to Kokoro automatically.</p>
+    <div id="tokenStatus" class="status info">Checking&hellip;</div>
+  </section>
+
+  <section class="card">
+    <form id="genForm">
+      <label for="cloneSelect">Voice clone</label>
+      <select id="cloneSelect" required>
+        <option value="">Loading voices…</option>
+      </select>
+      <p class="muted small">No voices yet? <a href="voices.html">Upload one on the My Voices page</a> first.</p>
+
+      <div class="field-row">
+        <div>
+          <label for="providerSelect">Provider</label>
+          <select id="providerSelect">
+            <option value="auto" selected>Auto — Chatterbox Nano, then Kokoro fallback</option>
+            <option value="chatterbox">Chatterbox Nano only</option>
+            <option value="kokoro">Kokoro only</option>
+          </select>
+        </div>
+        <div>
+          <label for="speedInput">Speed <span class="hint">(0.9 = slightly slower, more natural)</span></label>
+          <input type="number" id="speedInput" value="0.9" min="0.5" max="1.5" step="0.05">
+        </div>
+      </div>
+
+      <label for="runIdInput">Run id <span class="hint">(used as the artifact and file name)</span></label>
+      <input type="text" id="runIdInput" maxlength="80">
+
+      <label for="scriptInput">Script <span class="hint">(110–140 words works best for a 30–60 second Short)</span></label>
+      <textarea id="scriptInput" placeholder="Paste the voiceover script here…" required></textarea>
+      <p class="muted small"><span id="wordCount">0 words</span> &middot; estimated <span id="estSeconds">0 s</span> at ~2.5 words per second</p>
+
+      <button type="submit" id="genBtn" class="gold">Generate voiceover</button>
+    </form>
+    <div id="genStatus" class="status hidden"></div>
+  </section>
+
+  <section class="card hidden" id="runCard">
+    <h2>Run status</h2>
+    <p id="runLine" class="muted">Waiting…</p>
+    <div class="progress" id="runProgress"><div style="width: 5%"></div></div>
+    <p>
+      <a id="runLink" class="btn small secondary" href="#" target="_blank" rel="noopener">View run on GitHub</a>
+      <button type="button" id="stopPollBtn" class="small secondary">Stop checking</button>
+    </p>
+    <div id="resultBox" class="hidden">
+      <h3>Your voiceover is ready</h3>
+      <p id="summaryLine" class="muted"></p>
+      <p>
+        <a id="downloadMp3Btn" class="btn gold" href="#" download>Download MP3</a>
+        <a id="downloadZipBtn" class="btn secondary" href="#" download>Download artifact zip</a>
+      </p>
+      <p class="muted small" id="zipNote"></p>
+    </div>
+  </section>
+</main>
+
+<footer class="site-footer">
+  Equanimous Voice Studio &middot; Rendering runs on GitHub Actions (free public-repo runners). A 60-second voiceover usually takes a few minutes.
+</footer>
+
+<script src="app.js"></script>
+<script>
+(function () {
+  EQ.initNav();
+  EQ.renderTokenStatus(document.getElementById('tokenStatus'));
+
+  var cloneSelect = document.getElementById('cloneSelect');
+  var providerSelect = document.getElementById('providerSelect');
+  var speedInput = document.getElementById('speedInput');
+  var runIdInput = document.getElementById('runIdInput');
+  var scriptInput = document.getElementById('scriptInput');
+  var wordCount = document.getElementById('wordCount');
+  var estSeconds = document.getElementById('estSeconds');
+  var genForm = document.getElementById('genForm');
+  var genBtn = document.getElementById('genBtn');
+  var genStatus = document.getElementById('genStatus');
+  var runCard = document.getElementById('runCard');
+  var runLine = document.getElementById('runLine');
+  var runProgress = document.getElementById('runProgress').querySelector('div');
+  var runLink = document.getElementById('runLink');
+  var stopPollBtn = document.getElementById('stopPollBtn');
+  var resultBox = document.getElementById('resultBox');
+  var summaryLine = document.getElementById('summaryLine');
+  var downloadMp3Btn = document.getElementById('downloadMp3Btn');
+  var downloadZipBtn = document.getElementById('downloadZipBtn');
+  var zipNote = document.getElementById('zipNote');
+
+  var pollTimer = null;
+  var dispatchTime = 0;
+  var currentRunId = null;
+  var currentRunName = '';
+
+  runIdInput.value = EQ.defaultRunId();
+
+  function updateCounts() {
+    var words = scriptInput.value.trim() ? scriptInput.value.trim().split(/\s+/).length : 0;
+    wordCount.textContent = words + (words === 1 ? ' word' : ' words');
+    estSeconds.textContent = Math.round(words / 2.5) + ' s';
+  }
+  scriptInput.addEventListener('input', updateCounts);
+  updateCounts();
+
+  function loadClones() {
+    if (!EQ.hasToken()) {
+      cloneSelect.innerHTML = '<option value="">Save a token first (Guide page)</option>';
+      return;
+    }
+    EQ.listReferences().then(function (refs) {
+      cloneSelect.innerHTML = '';
+      if (refs.length === 0) {
+        cloneSelect.innerHTML = '<option value="">No voices yet — upload one first</option>';
+        return;
+      }
+      refs.forEach(function (ref) {
+        var opt = document.createElement('option');
+        opt.value = EQ.REFERENCES_DIR + '/' + ref.name;
+        opt.textContent = ref.name + ' (' + EQ.formatBytes(ref.size) + ')';
+        cloneSelect.appendChild(opt);
+      });
+    }).catch(function (err) {
+      cloneSelect.innerHTML = '<option value="">Could not load voices: ' + EQ.escapeHtml(err.message) + '</option>';
+    });
+  }
+  loadClones();
+
+  function stopPolling() {
+    if (pollTimer) { clearInterval(pollTimer); pollTimer = null; }
+  }
+  stopPollBtn.addEventListener('click', function () {
+    stopPolling();
+    runLine.textContent = 'Stopped checking. The run may still be going — open it on GitHub to see the result.';
+    runProgress.style.width = '100%';
+  });
+
+  function setRunProgress(pct, text) {
+    runProgress.style.width = pct + '%';
+    runLine.textContent = text;
+  }
+
+  // Find the workflow run created by our dispatch: the newest run whose
+  // created_at is at/after the dispatch (with 30 s of clock slack).
+  function findOurRun() {
+    return EQ.listWorkflowRuns(10).then(function (data) {
+      var runs = (data && data.workflow_runs) || [];
+      var threshold = dispatchTime - 30000;
+      for (var i = 0; i < runs.length; i++) {
+        var created = new Date(runs[i].created_at).getTime();
+        if (created >= threshold) return runs[i];
+      }
+      return null;
+    });
+  }
+
+  function pollRun() {
+    if (!currentRunId) {
+      findOurRun().then(function (run) {
+        if (!run) {
+          setRunProgress(10, 'Run queued on GitHub — waiting for it to appear (this can take a minute)…');
+          return;
+        }
+        currentRunId = run.id;
+        runLink.href = EQ.runPageUrl(currentRunId);
+        setRunProgress(20, 'Run found — status: ' + run.status + '…');
+      }).catch(function (err) {
+        setRunProgress(10, 'Could not list runs yet: ' + err.message + ' — retrying…');
+      });
+      return;
+    }
+    EQ.getRun(currentRunId).then(function (run) {
+      if (run.status === 'queued') setRunProgress(25, 'Queued — waiting for a free runner…');
+      else if (run.status === 'in_progress') setRunProgress(55, 'Generating — the runner is rendering your voiceover…');
+      else if (run.status === 'completed') {
+        stopPolling();
+        if (run.conclusion === 'success') {
+          setRunProgress(90, 'Finished. Fetching your MP3…');
+          fetchArtifact();
+        } else {
+          setRunProgress(100, 'Run finished with: ' + run.conclusion + '. Open the run on GitHub to read the log.');
+          EQ.showStatus(genStatus, 'err', 'The run did not succeed (' + EQ.escapeHtml(run.conclusion || 'unknown') +
+            '). <a href="' + EQ.runPageUrl(currentRunId) + '" target="_blank" rel="noopener">Open the run log on GitHub</a>.');
+        }
+      } else {
+        setRunProgress(40, 'Status: ' + run.status + '…');
+      }
+    }).catch(function (err) {
+      setRunProgress(40, 'Could not read run status: ' + err.message + ' — retrying…');
+    });
+  }
+
+  function fetchArtifact() {
+    EQ.listRunArtifacts(currentRunId).then(function (data) {
+      var artifacts = (data && data.artifacts) || [];
+      var art = null;
+      for (var i = 0; i < artifacts.length; i++) {
+        if (artifacts[i].name === currentRunName) { art = artifacts[i]; break; }
+      }
+      if (!art) art = artifacts[0];
+      if (!art) throw new Error('No artifact on this run. The workflow may have failed before uploading.');
+      return EQ.downloadArtifactZip(art.archive_download_url);
+    }).then(function (zipBlob) {
+      // Offer the raw zip as a fallback download regardless.
+      var zipUrl = URL.createObjectURL(zipBlob);
+      downloadZipBtn.href = zipUrl;
+      downloadZipBtn.setAttribute('download', currentRunName + '.zip');
+      if (typeof JSZip === 'undefined') {
+        zipNote.textContent = 'The zip extractor did not load (offline or blocked CDN). Download the artifact zip above — it contains the MP3 and the summary JSON.';
+        resultBox.classList.remove('hidden');
+        setRunProgress(100, 'Finished — MP3 is inside the artifact zip.');
+        return;
+      }
+      return JSZip.loadAsync(zipBlob).then(function (zip) {
+        var mp3Name = null, jsonName = null;
+        Object.keys(zip.files).forEach(function (name) {
+          if (/\.mp3$/i.test(name) && !mp3Name) mp3Name = name;
+          if (/\.json$/i.test(name) && !jsonName) jsonName = name;
+        });
+        var jobs = [];
+        if (mp3Name) jobs.push(zip.file(mp3Name).async('blob').then(function (blob) {
+          var url = URL.createObjectURL(blob);
+          downloadMp3Btn.href = url;
+          downloadMp3Btn.setAttribute('download', mp3Name.split('/').pop());
+          downloadMp3Btn.classList.remove('hidden');
+        }));
+        if (jsonName) jobs.push(zip.file(jsonName).async('string').then(function (text) {
+          try {
+            var s = JSON.parse(text);
+            var bits = [];
+            if (s.provider) bits.push('provider: <strong>' + EQ.escapeHtml(s.provider) + '</strong>');
+            if (s.duration != null) bits.push('duration: <strong>' + EQ.formatDuration(s.duration) + '</strong>');
+            if (s.words != null) bits.push('words: <strong>' + EQ.escapeHtml(String(s.words)) + '</strong>');
+            if (s.voice) bits.push('voice: <strong>' + EQ.escapeHtml(String(s.voice)) + '</strong>');
+            summaryLine.innerHTML = bits.length ? bits.join(' &middot; ') : 'Summary: ' + EQ.escapeHtml(text.slice(0, 300));
+          } catch (e) {
+            summaryLine.textContent = 'Summary file: ' + jsonName;
+          }
+        }));
+        return Promise.all(jobs).then(function () {
+          if (!mp3Name) {
+            zipNote.textContent = 'No MP3 was found inside the artifact — download the zip above and check its contents, or open the run log.';
+          } else {
+            zipNote.textContent = 'MP3 extracted from the artifact. The zip also holds the summary JSON.';
+          }
+          resultBox.classList.remove('hidden');
+          setRunProgress(100, 'Done — your voiceover is ready to download.');
+        });
+      });
+    }).catch(function (err) {
+      setRunProgress(100, 'Finished, but the MP3 could not be fetched here: ' + err.message);
+      EQ.showStatus(genStatus, 'err', 'Run succeeded, but downloading the artifact failed: ' + EQ.escapeHtml(err.message) +
+        ' Open the <a href="' + EQ.runPageUrl(currentRunId) + '" target="_blank" rel="noopener">run on GitHub</a> and download the artifact there.');
+    });
+  }
+
+  genForm.addEventListener('submit', function (ev) {
+    ev.preventDefault();
+    EQ.hideStatus(genStatus);
+    resultBox.classList.add('hidden');
+    if (!EQ.hasToken()) {
+      EQ.showStatus(genStatus, 'warn', 'Save a token on the <a href="guide.html">Guide</a> page first.');
+      return;
+    }
+    var reference = cloneSelect.value;
+    var text = scriptInput.value.trim();
+    var runId = EQ.sanitizeName(runIdInput.value) || EQ.defaultRunId();
+    var speed = parseFloat(speedInput.value);
+    if (!reference) {
+      EQ.showStatus(genStatus, 'err', 'Pick a voice clone first (upload one on the My Voices page if the list is empty).');
+      return;
+    }
+    if (!text) {
+      EQ.showStatus(genStatus, 'err', 'Paste a script first.');
+      return;
+    }
+    if (isNaN(speed) || speed < 0.5 || speed > 1.5) {
+      EQ.showStatus(genStatus, 'err', 'Speed must be between 0.5 and 1.5.');
+      return;
+    }
+    runIdInput.value = runId;
+    currentRunName = runId;
+    currentRunId = null;
+    genBtn.disabled = true;
+    runCard.classList.remove('hidden');
+    setRunProgress(5, 'Dispatching the workflow on GitHub…');
+    dispatchTime = Date.now();
+    EQ.dispatchVoiceover({
+      runId: runId,
+      text: text,
+      reference: reference,
+      speed: speed,
+      provider: providerSelect.value
+    }).then(function () {
+      EQ.showStatus(genStatus, 'ok', 'Workflow dispatched. Watching the run — this page polls GitHub every 15 seconds. You can leave it open.');
+      stopPolling();
+      pollTimer = setInterval(pollRun, 15000);
+      pollRun();
+    }).catch(function (err) {
+      setRunProgress(5, 'Dispatch failed.');
+      var hint = err.status === 404
+        ? ' The workflow file <code>' + EQ.escapeHtml(EQ.WORKFLOW_FILE) + '</code> was not found in the repo — it may not be pushed yet.'
+        : '';
+      EQ.showStatus(genStatus, 'err', 'Could not start the workflow: ' + EQ.escapeHtml(err.message) + hint);
+      genBtn.disabled = false;
+    }).finally(function () {
+      // Keep the button disabled while polling; re-enable when the run ends.
+      var watch = setInterval(function () {
+        if (!pollTimer) { genBtn.disabled = false; clearInterval(watch); }
+      }, 1000);
+    });
+  });
+})();
+</script>
+</body>
+</html>

@@ -1,0 +1,149 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Setup &amp; Guide — Equanimous Voice Studio</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<header class="site-header">
+  <div class="wrap">
+    <div class="brand">
+      <h1>Equanimous <span class="gold">Voice Studio</span></h1>
+      <span class="tagline">Your voice, cloned. Your scripts, spoken.</span>
+    </div>
+    <nav class="main-nav">
+      <a href="index.html">Home</a>
+      <a href="voices.html">My Voices</a>
+      <a href="generate.html">Generate</a>
+      <a href="guide.html">Guide</a>
+    </nav>
+  </div>
+</header>
+
+<main class="wrap">
+  <section class="card">
+    <h2>Setup &amp; Guide</h2>
+    <p class="lede">This site has no backend and no account of its own. It talks to GitHub's API with a Personal Access Token (PAT) that you create once and paste here. The token is stored only in this browser's local storage and is sent only to <code>api.github.com</code>. It is never shown in full again — only its last 4 characters.</p>
+    <div id="tokenStatus" class="status info">Checking&hellip;</div>
+  </section>
+
+  <section class="card">
+    <h2>Step 1 — Create a token on GitHub</h2>
+    <ol class="steps">
+      <li>Open <a href="https://github.com/settings/tokens?type=beta" target="_blank" rel="noopener">github.com/settings/tokens?type=beta</a> (fine-grained tokens) and sign in as <strong>rdxsiam717-bot</strong>.</li>
+      <li>Click <strong>Generate new token</strong>. Give it a name like <code>equanimous-voice-studio</code>.</li>
+      <li>Set <strong>Repository access</strong> to <strong>Only select repositories</strong> and choose <code>rdxsiam717-bot/equanimous-render</code> — nothing else.</li>
+      <li>Under <strong>Repository permissions</strong>, set:
+        <ul>
+          <li><strong>Contents — Read and write</strong> (upload and delete voice clones in <code>references/</code>)</li>
+          <li><strong>Actions — Read and write</strong> (start voiceover runs, read their status, download artifacts)</li>
+        </ul>
+        Leave everything else at <strong>No access</strong>.
+      </li>
+      <li>Set an expiry (a long one is fine, e.g. 1 year) and click <strong>Generate token</strong>. Copy the token shown — GitHub shows it only once.</li>
+    </ol>
+    <p class="muted">If you use the wrong account (your personal GitHub account instead of rdxsiam717-bot), the token will not have access to this repo and the site will show a 404/403 error. That is the first thing to check.</p>
+  </section>
+
+  <section class="card">
+    <h2>Step 2 — Paste the token here</h2>
+    <form id="tokenForm">
+      <label for="tokenInput">Personal Access Token <span class="hint">(starts with github_pat_…)</span></label>
+      <input type="password" id="tokenInput" placeholder="github_pat_…" autocomplete="off">
+      <button type="submit" class="gold">Save token in this browser</button>
+      <button type="button" id="clearTokenBtn" class="secondary">Remove saved token</button>
+    </form>
+    <div id="tokenMsg" class="status hidden"></div>
+    <p class="muted small">Stored in this browser's local storage under the key <code>eq_voice_studio_pat_v1</code>. Clearing your browser's site data removes it. To revoke it entirely, delete the token at <a href="https://github.com/settings/tokens?type=beta" target="_blank" rel="noopener">github.com/settings/tokens</a>.</p>
+  </section>
+
+  <section class="card">
+    <h2>Step 3 — Upload your voice</h2>
+    <p>Go to <a href="voices.html">My Voices</a> and upload a 5–10 second recording of clear speech in a quiet room. For the best clone, read two motivational lines with the exact energy you want in the videos — warm, confident, encouraging. The file is saved in the repo as <code>references/&lt;name&gt;.wav</code> and becomes a clone you can pick every time.</p>
+    <p class="muted">A clone is a reference recording, not a trained model. Nothing about your voice is trained or stored anywhere except that file in your own repo.</p>
+  </section>
+
+  <section class="card">
+    <h2>Step 4 — Generate a voiceover</h2>
+    <p>Go to <a href="generate.html">Generate</a>, pick a clone, choose a provider, paste the script and press Generate. The workflow runs on GitHub's free runners (public repos have no minute cap). A 60-second voiceover usually takes a few minutes, including the runner starting up. When it finishes, download the MP3 from the same page.</p>
+  </section>
+
+  <section class="card">
+    <h2>Providers</h2>
+    <h3>Chatterbox Nano — main</h3>
+    <p>An open-source text-to-speech model (MIT licence) built for CPU. It clones your reference voice, so the narration sounds like you, with natural pauses and expression. It is the default for every generation.</p>
+    <h3>Kokoro — fallback</h3>
+    <p>An open-source text-to-speech model (Apache 2.0 licence), very fast on CPU, with a fixed set of voices. If Chatterbox fails, the workflow automatically falls back to Kokoro's male voice <code>bm_daniel</code> at the speed you chose. You can also force Kokoro on the Generate page.</p>
+    <p class="muted">Both licences allow commercial use, which matters because the channel is monetised. The provider actually used for each voiceover is written into the summary that comes back with the MP3.</p>
+  </section>
+
+  <section class="card">
+    <h2>How the site works, and what it never does</h2>
+    <ul>
+      <li><strong>No backend.</strong> Every page is a static file served by GitHub Pages. All work happens in your browser and on GitHub's runners.</li>
+      <li><strong>Your token goes only to api.github.com.</strong> It is never sent to any other site, never logged, and never displayed in full.</li>
+      <li><strong>Your voice stays in your repo.</strong> Reference recordings live under <code>references/</code> in <code>rdxsiam717-bot/equanimous-render</code> and nowhere else.</li>
+      <li><strong>Nothing is published automatically.</strong> Generating a voiceover only creates an MP3. Uploading or scheduling a video is a separate, deliberate step in the n8n pipeline.</li>
+    </ul>
+  </section>
+
+  <section class="card">
+    <h2>Troubleshooting</h2>
+    <ul>
+      <li><strong>“Resource not found” (404) when loading voices or dispatching:</strong> the token is from the wrong GitHub account, the repo is not selected in the token's repository access, or the <code>chatterbox-voiceover.yml</code> workflow has not been pushed to the repo yet.</li>
+      <li><strong>“Bad credentials” (401):</strong> the token was typed wrong, expired, or revoked. Create a new one and paste it again.</li>
+      <li><strong>“Forbidden” (403):</strong> the token is missing the Contents or Actions permission. Edit the token on GitHub (or create a new one) with both set to Read and write.</li>
+      <li><strong>The run stays queued for a long time:</strong> GitHub's free runners are usually fast, but queues happen at busy times. Open the run on GitHub to watch it directly.</li>
+      <li><strong>The MP3 download button does not appear:</strong> the artifact zip could not be unpacked in the browser (the JSZip CDN may be blocked). Use the “Download artifact zip” button instead — it contains the same MP3.</li>
+    </ul>
+  </section>
+</main>
+
+<footer class="site-footer">
+  Equanimous Voice Studio &middot; Chatterbox Nano (MIT) &middot; Kokoro (Apache 2.0) &middot; Your token never leaves your browser except to api.github.com.
+</footer>
+
+<script src="app.js"></script>
+<script>
+(function () {
+  EQ.initNav();
+  var statusEl = document.getElementById('tokenStatus');
+  var msgEl = document.getElementById('tokenMsg');
+  var form = document.getElementById('tokenForm');
+  var input = document.getElementById('tokenInput');
+  var clearBtn = document.getElementById('clearTokenBtn');
+
+  function refresh() { EQ.renderTokenStatus(statusEl); }
+  refresh();
+
+  form.addEventListener('submit', function (ev) {
+    ev.preventDefault();
+    var token = input.value.trim();
+    if (!token) {
+      EQ.showStatus(msgEl, 'err', 'Paste a token first.');
+      return;
+    }
+    if (!/^github_pat_/.test(token) && !/^ghp_/.test(token)) {
+      EQ.showStatus(msgEl, 'warn', 'That does not look like a GitHub token (it usually starts with <code>github_pat_</code>). It was still saved — if the site reports “Bad credentials”, check the token on GitHub.');
+    } else {
+      EQ.showStatus(msgEl, 'ok', 'Token saved in this browser (ends in <code>&hellip;' + EQ.escapeHtml(token.slice(-4)) + '</code>). It is never shown in full again.');
+    }
+    if (EQ.setToken(token)) {
+      input.value = '';
+      refresh();
+    } else {
+      EQ.showStatus(msgEl, 'err', 'Could not save the token — this browser may block local storage.');
+    }
+  });
+
+  clearBtn.addEventListener('click', function () {
+    EQ.clearToken();
+    EQ.showStatus(msgEl, 'info', 'Saved token removed from this browser.');
+    refresh();
+  });
+})();
+</script>
+</body>
+</html>
