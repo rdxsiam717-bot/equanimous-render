@@ -44,8 +44,11 @@ jobs:
       - name: Install CPU torch first (avoid CUDA build)
         run: pip install "torch==2.6.0" "torchaudio==2.6.0" --index-url https://download.pytorch.org/whl/cpu
 
-      - name: Install Chatterbox (pinned, retired archive)
-        run: pip install "chatterbox-tts==0.1.7" soundfile
+      - name: Install Chatterbox from GitHub master (pinned, retired archive)
+        # PyPI's latest (0.1.7) predates the `nano` parameter — Nano support
+        # exists only on master. The repo is retired (Aug 2026), so master
+        # is the final frozen state.
+        run: pip install "git+https://github.com/resemble-ai/chatterbox.git" soundfile
 
       - name: Generate samples
         run: |
