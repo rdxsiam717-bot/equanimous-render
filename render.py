@@ -59,7 +59,7 @@ Rules preserved exactly from the bridge (do not "improve" them):
   * Output duration is always 30-60 seconds. Anything outside that
     range exits non-zero (exit code 2) with a clear error — this is the
     bridge's HTTP 422.
-  * Scene changes use a gentle 0.5s cross-dissolve (xfade=fade), never a
+  * Scene changes use a gentle 1.0s cross-dissolve (xfade=fade), never a
     hard cut. Fade in/out 0.5s at the ends. A vignette (PI/4) is applied.
   * A media item is a clip only when its probed duration > 0.5s; stills
     probe as ~0.04s and get a slow push-in (zoompan 1.00 -> 1.10).
@@ -67,7 +67,7 @@ Rules preserved exactly from the bridge (do not "improve" them):
     are normalised alone before assembly (scale/crop 1080x1920, fps 30,
     crf 23) — never in the big filtergraph (that OOM-kills the encode).
   * Chained-xfade offset = k*(seg - XFADE), relative to each step's
-    first input, where seg = (audio_dur + (n-1)*0.5)/n.
+    first input, where seg = (audio_dur + (n-1)*XFADE)/n.
   * Ambience: per segment, trimmed to its output span, fed 1.0s longer,
     volume 0.2, resampled 44100 Hz stereo, first piece fades in 0.5s,
     last fades out 0.5s, consecutive pieces joined by acrossfade d=1.0
@@ -109,7 +109,7 @@ MAX_ITEM_BYTES = 250 * 1024 * 1024   # 250 MB per media item (long 4K Pixabay cl
 FFMPEG_TIMEOUT = 600  # seconds per encode
 WHISPER_TIMEOUT = 300  # seconds per caption measurement
 
-XFADE = 0.5  # seconds of gentle cross-dissolve between scenes
+XFADE = 1.0  # seconds of gentle cross-dissolve between scenes (raised from 0.5 on 15 Nov — Hriduan asked for smoother, more natural transitions; 1.0s also matches the 1.0s ambience crossfade so picture and sound change together)
 ACROSS = 1.0  # seconds of crossfade between ambience pieces
 
 # Ambience loudness normalisation (2026-11-13): Freesound ambience files
@@ -976,11 +976,11 @@ def assemble(manifest, tmpdir, out_path):
                            "-i", "anullsrc=r=44100:cl=stereo"]
                 amb_labels.append("[%d:a]" % src)
 
-    # Scene changes use a gentle 0.5s cross-dissolve (xfade=fade),
+    # Scene changes use a gentle 1.0s cross-dissolve (xfade=fade),
     # never a hard cut — comfortable to the eyes. Each xfade step's
     # offset is relative to ITS first input (the chain accumulated
     # so far), NOT the final output timeline: the k-th join starts
-    # 0.5s before the accumulated chain ends, i.e. k*(seg-XFADE).
+    # 1.0s before the accumulated chain ends, i.e. k*(seg-XFADE).
     # (The old formula (k+1)*seg-(k+1)*XFADE was one segment too
     # far, so xfade saw an offset past its first input's end and
     # the output collapsed to a single segment, ~6.5s.)
