@@ -671,17 +671,27 @@ def align_words(script, whisper_words):
     # which would make its caption line invisible. Give such a word a short
     # 0.12s slice and push any word that starts inside it to just after
     # it, so every word gets a visible slice and starts stay strictly
-    # increasing.
+    # increasing. Words the aligner could not place at all (start None)
+    # get the same treatment instead of failing the run: a hyphen split
+    # like "self-care." makes Whisper use two words for one script word,
+    # so the stream runs out before the last script words. Those words
+    # ARE spoken (verified by transcription), so place them just after
+    # the last placed word and log how many fell back.
     prev_end = 0.0
+    fallback_words = []
     for a in aligned:
-        if a["start"] is not None and a["start"] < prev_end:
+        if a["start"] is None:
+            a["start"] = prev_end
+            fallback_words.append(a["text"])
+        if a["start"] < prev_end:
             a["start"] = prev_end
         if a["end"] is None or a["end"] <= a["start"]:
             a["end"] = (a["start"] or 0.0) + 0.12
         prev_end = a["end"]
-    if any(a["start"] is None for a in aligned):
-        missing = [a["text"] for a in aligned if a["start"] is None]
-        raise RenderError("words with no timing: %s" % missing)
+    if fallback_words:
+        log("caption align: %d word(s) got fallback timing "
+            "(unplaced by Whisper stream): %s"
+            % (len(fallback_words), fallback_words))
     return aligned
 
 
