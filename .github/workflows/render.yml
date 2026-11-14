@@ -102,8 +102,7 @@ jobs:
         with:
           name: ${{ inputs.video_id }}
           path: |
-            out/${{ inputs.video_id }}.mp4
-            out/${{ inputs.video_id }}-captioned.mp4
+            out/*.mp4
             render-summary.json
           if-no-files-found: error
           retention-days: 7
