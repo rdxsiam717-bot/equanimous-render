@@ -92,6 +92,8 @@ def main():
     ap.add_argument("--text-file", default=None)
     ap.add_argument("--reference", default=None,
                     help="voice-clone reference audio (5-10 s WAV/MP3) for Chatterbox")
+    ap.add_argument("--fallback-reference", default=None,
+                    help="second voice-clone reference to try with Chatterbox if the primary reference fails, before falling back to Kokoro")
     ap.add_argument("--speed", type=float, default=0.9,
                     help="Kokoro speed; Chatterbox has no speed control (ignored there)")
     ap.add_argument("--provider", default="auto",
@@ -121,17 +123,33 @@ def main():
     sr = None
 
     # Main provider: Chatterbox Nano (needs a reference file).
+    # Order: primary reference, then fallback reference (a second Chatterbox
+    # voice), then Kokoro. The fallback reference lets the primary voice be
+    # swapped (e.g. Martin Geeson) while keeping the previous primary
+    # (David Clarke) as the first alternative instead of dropping to Kokoro.
+    reference_used = None
     if args.provider in ("auto", "chatterbox"):
         if args.reference and os.path.exists(args.reference):
             try:
                 audio, sr = synth_chatterbox(sentences, args.reference)
                 provider_used = "chatterbox-nano"
-            except Exception as e:  # noqa: BLE001 - fall back to Kokoro
+                reference_used = args.reference
+            except Exception as e:  # noqa: BLE001 - try the fallback reference
                 provider_error = "chatterbox failed: %s" % e
                 print(provider_error, file=sys.stderr)
         else:
             provider_error = "chatterbox skipped: no reference file (%s)" % args.reference
             print(provider_error, file=sys.stderr)
+        # First alternative: a second Chatterbox reference, before Kokoro.
+        if provider_used is None and args.fallback_reference and os.path.exists(args.fallback_reference):
+            try:
+                audio, sr = synth_chatterbox(sentences, args.fallback_reference)
+                provider_used = "chatterbox-nano"
+                reference_used = args.fallback_reference
+                provider_error = None
+            except Exception as e:  # noqa: BLE001 - fall back to Kokoro
+                provider_error = "chatterbox fallback failed: %s" % e
+                print(provider_error, file=sys.stderr)
         if args.provider == "chatterbox" and provider_used is None:
             print("chatterbox requested but failed and no fallback allowed",
                   file=sys.stderr)
@@ -165,6 +183,8 @@ def main():
         "provider": provider_used,
         "provider_error": provider_error,
         "reference": args.reference,
+        "reference_used": reference_used,
+        "fallback_reference": args.fallback_reference,
         "kokoro_voice": args.kokoro_voice,
         "kokoro_lang": args.kokoro_lang,
         "speed": args.speed,
