@@ -20,6 +20,9 @@
 #   text         - script text to narrate (plain text, ~110-140 words)
 #   reference    - path in the repo to the voice-clone reference audio,
 #                  e.g. references/my-voice.wav (5-10 s). Empty = Kokoro only.
+#   fallback_reference - second Chatterbox reference to try if the primary
+#                  reference fails, before falling back to Kokoro.
+#                  Default is the previous primary (David Clarke).
 #   speed        - Kokoro speaking speed, 1.0 is normal (Chatterbox has no
 #                  speed control; ignored when Chatterbox renders)
 #   provider     - auto (Chatterbox Nano first, Kokoro on failure),
@@ -46,7 +49,12 @@ on:
         required: true
         type: string
       reference:
-        description: "Voice-clone reference in the repo, e.g. references/reference-clarke.wav (empty = Kokoro only)"
+        description: "Voice-clone reference in the repo, e.g. references/reference-martin-geeson.wav (empty = Kokoro only)"
+        required: false
+        type: string
+        default: "references/reference-martin-geeson.wav"
+      fallback_reference:
+        description: "Second Chatterbox reference to try if the primary fails, before Kokoro (default: David Clarke)"
         required: false
         type: string
         default: "references/reference-clarke.wav"
@@ -126,6 +134,7 @@ jobs:
           printf '%s' "$VOICEOVER_TEXT" > script.txt
           python3 chatterbox-voiceover.py --text-file script.txt \
             --reference "${{ inputs.reference }}" \
+            --fallback-reference "${{ inputs.fallback_reference }}" \
             --speed "${{ inputs.speed }}" \
             --provider "${{ inputs.provider }}" \
             --kokoro-voice "${{ inputs.kokoro_voice }}" \
